@@ -29,10 +29,10 @@ def pdf_to_vectordb(pdf_path):
         
         # Add embeddings and metadata to the collection
         collection.add(embeddings=embeddings.tolist(), metadatas=metadatas, ids=ids)
-    
+        print("processed " + str(i) + "chunks")
     print("vectordb has been created")
 
 
 pdf_to_vectordb("food_security_docs\SOFI-2023.pdf")
 pdf_to_vectordb("food_security_docs\SOFI-2024.pdf")
-
+print("finished loading vectordb!")

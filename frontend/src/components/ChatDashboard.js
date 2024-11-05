@@ -1,11 +1,60 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from './Card';
+import '../css/ChatDashboard.css';
+
+const MessageGroup = ({ messages, user }) => {
+  const isAI = user === 'AI Assistant';
+  
+  // Deduplicate messages based on content and timestamp
+  const uniqueMessages = messages.reduce((acc, current) => {
+    const isDuplicate = acc.find(
+      msg => 
+        msg.content === current.content && 
+        msg.timestamp === current.timestamp
+    );
+    if (!isDuplicate) {
+      acc.push(current);
+    }
+    return acc;
+  }, []);
+
+  return (
+    <div className="message-group">
+      <div className="message-user-info">
+        <div className={`user-avatar ${isAI ? 'user-avatar-ai' : 'user-avatar-human'}`}>
+          {user.charAt(0).toUpperCase()}
+        </div>
+        <div className="user-name">{user}</div>
+      </div>
+      {uniqueMessages.map((msg, idx) => {
+        const messageContent = typeof msg.content === 'object' && msg.content.response 
+          ? msg.content.response 
+          : msg.content;
+          
+        return (
+          <div key={`${user}-${msg.timestamp}-${idx}`} className="message-wrapper">
+            <div className={`message-bubble ${isAI ? 'message-bubble-ai' : 'message-bubble-human'}`}>
+              <div className="message-content">{messageContent}</div>
+            </div>
+            <div className="message-timestamp">
+              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 const ChatDashboard = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [ws, setWs] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const messagesEndRef = useRef(null);
+  const messageCache = useRef(new Set());
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -23,16 +72,28 @@ const ChatDashboard = () => {
         websocket.onopen = () => {
           console.log('Connected to WebSocket');
           setIsConnected(true);
+          setError(null);
         };
 
         websocket.onmessage = (event) => {
+          console.log('Received message:', event.data);
           const message = JSON.parse(event.data);
-          setMessages(prev => [...prev, message]);
+          const messageContent = typeof message.content === 'object' ? message.content.response : message.content;
+          const messageKey = `${message.user}-${messageContent}-${message.timestamp}`;
+
+          if (!messageCache.current.has(messageKey)) {
+            messageCache.current.add(messageKey);
+            setMessages(prev => [...prev, {
+              ...message,
+              content: messageContent
+            }]);
+          }
         };
 
         websocket.onclose = () => {
           console.log('Disconnected from WebSocket');
           setIsConnected(false);
+          setError('Connection lost. Attempting to reconnect...');
           setTimeout(connectWebSocket, 3000);
         };
 
@@ -40,6 +101,7 @@ const ChatDashboard = () => {
       } catch (error) {
         console.error('WebSocket connection error:', error);
         setIsConnected(false);
+        setError('Failed to connect to the server. Retrying...');
       }
     };
 
@@ -54,29 +116,33 @@ const ChatDashboard = () => {
 
   const sendMessage = async () => {
     if (!input.trim()) return;
+    
+    setIsLoading(true);
+    setError(null);
 
     try {
-      await fetch('http://localhost:8000/send_message', {
+      const timestamp = new Date().toISOString();
+      const newMessage = {
+        content: input,
+        user: 'User',
+        timestamp
+      };
+
+      const response = await fetch('http://localhost:8000/send_message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          content: input,
-          user: 'User',
-        }),
+        body: JSON.stringify(newMessage),
       });
-
-      // Optionally add the message to the local state immediately
-      setMessages(prev => [...prev, {
-        content: input,
-        user: 'User',
-        timestamp: new Date().toISOString()
-      }]);
-      
+      const responseData = await response.json();
+      console.log('Response from server:', responseData);
       setInput('');
     } catch (error) {
       console.error('Error sending message:', error);
+      setError('Failed to send message. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -87,73 +153,78 @@ const ChatDashboard = () => {
     }
   };
 
+  // Group messages by user
+  const groupedMessages = messages.reduce((groups, message) => {
+    const lastGroup = groups[groups.length - 1];
+    
+    if (lastGroup && lastGroup.user === message.user) {
+      lastGroup.messages.push(message);
+    } else {
+      groups.push({
+        user: message.user,
+        messages: [message]
+      });
+    }
+    
+    return groups;
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md">
-        {/* Header */}
-        <div className="border-b p-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold">Chat Dashboard</h1>
-          <div className={`flex items-center gap-2 text-sm ${
-            isConnected ? 'text-green-600' : 'text-red-600'
-          }`}>
-            <div className={`h-2 w-2 rounded-full ${
-              isConnected ? 'bg-green-600' : 'bg-red-600'
-            }`} />
-            {isConnected ? 'Connected' : 'Disconnecting...'}
-          </div>
-        </div>
-
-        {/* Messages */}
-        <div className="h-[calc(100vh-250px)] overflow-y-auto p-4 bg-gray-50">
-          {messages.map((msg, idx) => (
-            <div key={idx} className="mb-4 bg-white p-4 rounded-lg shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
-                  {msg.user.charAt(0).toUpperCase()}
-                </div>
-                <div className="font-bold text-gray-800">{msg.user}</div>
-              </div>
-              <div className="ml-10 mt-2 text-gray-700">{msg.content}</div>
-              {msg.context && (
-                <div className="ml-10 mt-2 p-3 bg-gray-50 rounded-md">
-                  <div className="text-sm font-semibold text-gray-600">Related Context:</div>
-                  {msg.context.map((ctx, cidx) => (
-                    <div key={cidx} className="ml-2 mt-1 text-sm text-gray-600">
-                      {ctx}
-                    </div>
-                  ))}
-                </div>
-              )}
+    <div className="chat-container">
+      <Card className="chat-card">
+        <CardHeader className="chat-header">
+          <div className="flex justify-between items-center">
+            <CardTitle className="chat-title">SOFI 2023/2024 Chat Assistant</CardTitle>
+            <div className={`connection-status ${isConnected ? 'status-connected' : 'status-disconnected'}`}>
+              <div className={`status-indicator ${isConnected ? 'indicator-connected' : 'indicator-disconnected'}`} />
+              {isConnected ? 'Connected' : 'Disconnected'}
             </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input Area */}
-        <div className="border-t p-4">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder="Type your message..."
-              className="flex-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim()}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                !input.trim()
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-blue-500 text-white hover:bg-blue-600'
-              }`}
-            >
-              Send
-            </button>
           </div>
-        </div>
-      </div>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          <div className="messages-container">
+            {error && (
+              <div className="error-alert">
+                <div className="error-icon">⚠</div>
+                <div>{error}</div>
+              </div>
+            )}
+            
+            {groupedMessages.map((group, idx) => (
+              <MessageGroup 
+                key={`${group.user}-${idx}`}
+                messages={group.messages} 
+                user={group.user} 
+              />
+            ))}
+            
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="input-container">
+            <div className="input-wrapper">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder="Ask about SOFI 2023/2024 data..."
+                disabled={isLoading}
+                className="chat-input"
+              />
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim() || isLoading}
+                className={`send-button ${!input.trim() || isLoading ? 'send-button-disabled' : 'send-button-enabled'}`}
+              >
+                {isLoading ? '⟳' : '→'}
+                Send
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };
