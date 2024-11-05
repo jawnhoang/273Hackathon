@@ -17,7 +17,7 @@ def prepare_context(results):
     if 'metadatas' in results and isinstance(results['metadatas'], list):
         # Extract the texts from the metadatas list
         context = "\n".join([metadata['text'] for metadata in results['metadatas'] if 'text' in metadata])
-        return context
+        return f"Use the following context to answer the question:\n\nContext:\n{context}\n\nPlease provide an answer strictly based on this context."
     else:
         return "No valid metadata found."
 

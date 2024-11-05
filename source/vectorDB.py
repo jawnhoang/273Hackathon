@@ -33,6 +33,6 @@ def pdf_to_vectordb(pdf_path):
     print("vectordb has been created")
 
 
-pdf_to_vectordb("SOFI-2023.pdf")
-pdf_to_vectordb("SOFI-2024.pdf")
+pdf_to_vectordb("food_security_docs\SOFI-2023.pdf")
+pdf_to_vectordb("food_security_docs\SOFI-2024.pdf")
 
